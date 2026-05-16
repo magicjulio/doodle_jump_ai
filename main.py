@@ -1,30 +1,19 @@
-# -*- coding: utf-8 -*-
-"""
-	CopyLeft 2021 Michael Rouves
-
-	This file is part of Pygame-DoodleJump.
-	Pygame-DoodleJump is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	Pygame-DoodleJump is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with Pygame-DoodleJump. If not, see <https://www.gnu.org/licenses/>.
-"""
-
+import os
+os.environ["SDL_VIDEODRIVER"] = "dummy"
 
 import pygame, sys
+from collections import deque
 
 from singleton import Singleton
 from camera import Camera
 from player import Player
 from level import Level
 import settings as config
+
+# ai agent
+from env import DoodleJumpEnv
+
+from agent import DQNAgent, get_observation, obs_to_vector
 
 
 
@@ -35,7 +24,7 @@ class Game(Singleton):
 	used to manage game updates, draw calls and user input events.
 	Can be access via Singleton: Game.instance .
 	(Check Singleton design pattern for more info)
-	"""
+	 """
 
 	# constructor called on new instance: Game()
 	def __init__(self) -> None:
@@ -56,6 +45,17 @@ class Game(Singleton):
 			config.PLAYER_COLOR#  COLOR
 		)
 
+		# ai agent env
+		self.env = DoodleJumpEnv(self)
+		self.agent = DQNAgent()
+		self.human_control = False
+		self.checkpoint_path = "dqn_checkpoint.pth"
+
+		if os.path.exists(self.checkpoint_path):
+			self.agent.load(self.checkpoint_path)
+			print("Loaded checkpoint:", self.checkpoint_path)
+
+
 		# User Interface
 		self.score = 0
 		self.score_txt = config.SMALL_FONT.render("0 m",1,config.GRAY)
@@ -65,7 +65,10 @@ class Game(Singleton):
 		self.gameover_rect = self.gameover_txt.get_rect(
 			center=(config.HALF_XWIN,config.HALF_YWIN))
 	
-	
+		# Frame stacking
+		self.stacked_frames = deque(maxlen=self.agent.frame_stack_size)
+
+
 	def close(self):
 		self.__alive = False
 
@@ -74,6 +77,7 @@ class Game(Singleton):
 		self.camera.reset()
 		self.lvl.reset()
 		self.player.reset()
+		self.stacked_frames.clear()
 
 
 	def _event_loop(self):
@@ -85,22 +89,56 @@ class Game(Singleton):
 				if event.key == pygame.K_ESCAPE:
 					self.close()
 				if event.key == pygame.K_RETURN and self.player.dead:
-					self.reset()
-			self.player.handle_event(event)
+					# update env instead  of just self.reset() 
+					self.env.reset()
+
+			if self.human_control:
+				self.player.handle_event(event)
+
+
+	def _get_stacked_state(self):
+		obs = get_observation(self.player)
+		state = obs_to_vector(obs)
+
+		if not self.stacked_frames:
+			for _ in range(self.agent.frame_stack_size):
+				self.stacked_frames.append(state)
+		else:
+			self.stacked_frames.append(state)
+
+		return list(self.stacked_frames)
+
+
+	def _agent_step(self, training=True):
+		state = self._get_stacked_state()
+		flat_state = [item for sublist in state for item in sublist]
+
+		action = self.agent.choose_action(flat_state)
+
+		next_obs, reward, done, info =  self.env.step(action)
+		
+		next_state = self._get_stacked_state()
+		flat_next_state = [item for sublist in next_state for item in sublist]
+
+		if training:
+			self.agent.remember(flat_state, action, reward, flat_next_state, done)
+			self.agent.learn()
+
+		if not self.player.dead:
+			self.score = info["score"]
+			self.score_txt = config.SMALL_FONT.render(
+				str(self.score) + " m", 1, config.GRAY)
+
+		return done, reward, info
 
 
 	def _update_loop(self):
 		# ----------- Update -----------
-		self.player.update()
-		self.lvl.update()
+		done, reward, info = self._agent_step(training=True)
 
-		if not self.player.dead:
-			self.camera.update(self.player.rect)
-			#calculate score and update UI txt
-			self.score=-self.camera.state.y//50
-			self.score_txt = config.SMALL_FONT.render(
-				str(self.score)+" m", 1, config.GRAY)
-	
+		if done:
+			self.env.reset()
+
 
 	def _render_loop(self):
 		# ----------- Display -----------
@@ -119,11 +157,56 @@ class Game(Singleton):
 
 	def run(self):
 		# ============= MAIN GAME LOOP =============
+		state = self._get_stacked_state()
+		flat_state = [item for sublist in state for item in sublist]
+
+
+		print("state length: ", len(flat_state), "state:", flat_state)
 		while self.__alive:
-			self._event_loop()
-			self._update_loop()
-			self._render_loop()
+			self.run_episodes(250, training=True, render=False)
+			self.agent.save(self.checkpoint_path)
+			print("Saved checkpoint:", self.checkpoint_path)
+			# self.run_visual_evaluation(3)
 		pygame.quit()
+
+
+	def run_episodes(self, episode_count, training=True, render=False):
+		for episode in range(episode_count):
+			if not self.__alive:
+				return
+
+			self.env.reset()
+			done = False
+			episode_reward = 0
+			last_info = {"score": 0}
+
+			while self.__alive and not done:
+				self._event_loop()
+				done, reward, last_info = self._agent_step(training=training)
+				episode_reward += reward
+
+				if render:
+					self._render_loop()
+
+			mode = "train" if training else "eval"
+			print(
+				mode,
+				"episode:",
+				episode + 1,
+				"score:",
+				last_info["score"],
+				"reward:",
+				round(episode_reward, 2),
+				"epsilon:",
+				round(self.agent.epsilon, 4),
+			)
+
+
+	def run_visual_evaluation(self, episode_count):
+		old_epsilon = self.agent.epsilon
+		self.agent.epsilon = 0.0
+		self.run_episodes(episode_count, training=False, render=True)
+		self.agent.epsilon = old_epsilon
 
 
 
@@ -132,4 +215,3 @@ if __name__ == "__main__":
 	# ============= PROGRAM STARTS HERE =============
 	game = Game()
 	game.run()
-

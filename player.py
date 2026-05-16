@@ -1,21 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-	CopyLeft 2021 Michael Rouves
-
-	This file is part of Pygame-DoodleJump.
-	Pygame-DoodleJump is free software: you can redistribute it and/or modify
-	it under the terms of the GNU Affero General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
-
-	Pygame-DoodleJump is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-	GNU Affero General Public License for more details.
-
-	You should have received a copy of the GNU Affero General Public License
-	along with Pygame-DoodleJump. If not, see <https://www.gnu.org/licenses/>.
-"""
 
 
 from math import copysign
@@ -23,11 +6,14 @@ from pygame.math import Vector2
 from pygame.locals import KEYDOWN,KEYUP,K_LEFT,K_RIGHT
 from pygame.sprite import collide_rect
 from pygame.event import Event
+from camera import Camera
+
 
 from singleton import Singleton
 from sprite import Sprite
 from level import Level
 import settings as config
+
 
 
 
@@ -41,7 +27,7 @@ class Player(Sprite, Singleton):
 	Manages player's input,physics (movement...).
 	Can be access via Singleton: Player.instance.
 	(Check Singleton design pattern for more info).
-	"""
+	 """
 	# (Overriding Sprite.__init__ constructor)
 	def __init__(self,*args):
 		#calling default Sprite constructor
@@ -59,7 +45,20 @@ class Player(Sprite, Singleton):
 		self.accel = .5
 		self.deccel = .6
 		self.dead = False
+		self.last_landed_platform = None
 	
+
+	def set_action(self, action: int) -> None:
+		if action == 0:
+			self._input = 0
+		elif action == 1:
+			self._input = -1
+		elif action == 2:
+			self._input = 1
+		else:
+			raise ValueError(f"Unknown action: {action}")
+
+
 
 	def _fix_velocity(self) -> None:
 		""" Set player's velocity between max/min.
@@ -77,6 +76,7 @@ class Player(Sprite, Singleton):
 		self.rect = self.__startrect.copy()
 		self.camera_rect = self.__startrect.copy()
 		self.dead = False
+		self.landed_on_platform = False
 
 
 	def handle_event(self,event:Event) -> None:
@@ -107,6 +107,7 @@ class Player(Sprite, Singleton):
 	def onCollide(self, obj:Sprite) -> None:
 		self.rect.bottom = obj.rect.top
 		self.jump()
+		self.last_landed_platform = obj
 	
 
 	def collisions(self) -> None:
@@ -133,10 +134,18 @@ class Player(Sprite, Singleton):
 		""" For position and velocity updates.
 		Should be called each frame.
 		"""
-		#Check if player out of screen: should be dead
-		if self.camera_rect.y>config.YWIN*2:
+		if Camera.instance:
+			screen_y = Camera.instance.apply_rect(self.rect).y
+		else:
+			screen_y = self.rect.y
+
+		if screen_y > config.YWIN * 2:
 			self.dead = True
 			return
+		
+		# reset landed_on_platform at the beginning of each frame
+		self.last_landed_platform = None
+		
 		#Velocity update (apply gravity, input acceleration)
 		self._velocity.y += self.gravity
 		if self._input: # accelerate
