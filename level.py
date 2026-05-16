@@ -20,7 +20,6 @@
 
 from random import randint
 from pygame import Surface
-import asyncio
 
 from singleton import Singleton
 from sprite import Sprite
@@ -152,8 +151,8 @@ class Level(Singleton):
 		return self.__platforms
 
 
-	async def _generation(self) -> None:
-		" Asynchronous management of platforms generation."
+	def _generation(self) -> None:
+		"Management of platforms generation."
 		# Check how many platform we need to generate
 		nb_to_generate = self.max_platforms - len(self.__platforms)
 		for _ in range(nb_to_generate):
@@ -200,7 +199,7 @@ class Level(Singleton):
 			if platform in self.__platforms:
 				self.__platforms.remove(platform)
 		self.__to_remove = []
-		asyncio.run(self._generation())
+		self._generation()
 
 
 	def draw(self,surface:Surface) -> None:

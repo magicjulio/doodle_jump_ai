@@ -2,6 +2,7 @@ from level import Level
 from math import sqrt
 import settings as config
 import random
+import os
 from collections import deque
 
 import torch
@@ -155,6 +156,9 @@ class DQNAgent:
         self.action_size = action_size
         self.frame_stack_size = frame_stack_size
         self.stacked_state_size = state_size * frame_stack_size
+        use_cuda = torch.cuda.is_available() and os.environ.get("FORCE_CPU", "0") != "1"
+        self.device = torch.device("cuda" if use_cuda else "cpu")
+        print("Using device:", self.device)
 
         self.gamma = 0.99
         self.lr = 0.001
@@ -166,8 +170,8 @@ class DQNAgent:
         self.batch_size = 64
         self.memory = deque(maxlen=50_000)
 
-        self.model = DQN(self.stacked_state_size, action_size)
-        self.target_model = DQN(self.stacked_state_size, action_size)
+        self.model = DQN(self.stacked_state_size, action_size).to(self.device)
+        self.target_model = DQN(self.stacked_state_size, action_size).to(self.device)
         self.target_model.load_state_dict(self.model.state_dict())
         self.target_model.eval()
 
@@ -187,10 +191,14 @@ class DQNAgent:
         }, path)
 
     def load(self, path):
-        checkpoint = torch.load(path, weights_only=False)
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
         self.model.load_state_dict(checkpoint["model"])
         self.target_model.load_state_dict(checkpoint["target_model"])
         self.optimizer.load_state_dict(checkpoint["optimizer"])
+        for state in self.optimizer.state.values():
+            for key, value in state.items():
+                if torch.is_tensor(value):
+                    state[key] = value.to(self.device)
         self.epsilon = checkpoint["epsilon"]
         self.memory = checkpoint["memory"]
 
@@ -199,7 +207,11 @@ class DQNAgent:
         if random.random() < self.epsilon:
             return random.randint(0, self.action_size - 1)
 
-        state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+        state_tensor = torch.tensor(
+            state,
+            dtype=torch.float32,
+            device=self.device,
+        ).unsqueeze(0)
 
         with torch.no_grad():
             q_values = self.model(state_tensor)
@@ -224,17 +236,17 @@ class DQNAgent:
 
         batch = random.sample(self.memory, self.batch_size)
 
-        states = torch.tensor([x[0] for x in batch], dtype=torch.float32)
-        actions = torch.tensor([x[1] for x in batch], dtype=torch.long)
-        rewards = torch.tensor([x[2] for x in batch], dtype=torch.float32)
-        next_states = torch.tensor([x[3] for x in batch], dtype=torch.float32)
-        dones = torch.tensor([x[4] for x in batch], dtype=torch.bool)
+        states = torch.tensor([x[0] for x in batch], dtype=torch.float32, device=self.device)
+        actions = torch.tensor([x[1] for x in batch], dtype=torch.long, device=self.device)
+        rewards = torch.tensor([x[2] for x in batch], dtype=torch.float32, device=self.device)
+        next_states = torch.tensor([x[3] for x in batch], dtype=torch.float32, device=self.device)
+        dones = torch.tensor([x[4] for x in batch], dtype=torch.bool, device=self.device)
 
         current_q = self.model(states).gather(1, actions.unsqueeze(1)).squeeze(1)
 
         with torch.no_grad():
             next_q = self.target_model(next_states).max(1)[0]
-            target_q = rewards + self.gamma * next_q * (~dones)
+            target_q = rewards + self.gamma * next_q * (~dones).float()
 
         loss = self.loss_fn(current_q, target_q)
 

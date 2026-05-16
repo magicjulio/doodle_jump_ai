@@ -1,5 +1,8 @@
 import os
-os.environ["SDL_VIDEODRIVER"] = "dummy"
+
+HEADLESS = os.environ.get("HEADLESS", "0") == "1"
+if HEADLESS:
+	os.environ["SDL_VIDEODRIVER"] = "dummy"
 
 import pygame, sys
 from collections import deque
@@ -49,6 +52,11 @@ class Game(Singleton):
 		self.env = DoodleJumpEnv(self)
 		self.agent = DQNAgent()
 		self.human_control = False
+		self.headless = HEADLESS
+		self.train_episodes_per_checkpoint = int(
+			os.environ.get("TRAIN_EPISODES_PER_CHECKPOINT", "1000" if self.headless else "100")
+		)
+		self.eval_episodes = int(os.environ.get("EVAL_EPISODES", "0" if self.headless else "3"))
 		self.checkpoint_path = "dqn_checkpoint.pth"
 
 		if os.path.exists(self.checkpoint_path):
@@ -82,6 +90,9 @@ class Game(Singleton):
 
 	def _event_loop(self):
 		# ---------- User Events ----------
+		if self.headless:
+			return
+
 		for event in pygame.event.get():
 			if event.type == pygame.QUIT:
 				self.close()
@@ -126,8 +137,9 @@ class Game(Singleton):
 
 		if not self.player.dead:
 			self.score = info["score"]
-			self.score_txt = config.SMALL_FONT.render(
-				str(self.score) + " m", 1, config.GRAY)
+			if not self.headless:
+				self.score_txt = config.SMALL_FONT.render(
+					str(self.score) + " m", 1, config.GRAY)
 
 		return done, reward, info
 
@@ -163,10 +175,11 @@ class Game(Singleton):
 
 		print("state length: ", len(flat_state), "state:", flat_state)
 		while self.__alive:
-			self.run_episodes(250, training=True, render=False)
+			self.run_episodes(self.train_episodes_per_checkpoint, training=True, render=False)
 			self.agent.save(self.checkpoint_path)
 			print("Saved checkpoint:", self.checkpoint_path)
-			# self.run_visual_evaluation(3)
+			if self.eval_episodes:
+				self.run_visual_evaluation(self.eval_episodes)
 		pygame.quit()
 
 
@@ -181,7 +194,8 @@ class Game(Singleton):
 			last_info = {"score": 0}
 
 			while self.__alive and not done:
-				self._event_loop()
+				if render or not self.headless:
+					self._event_loop()
 				done, reward, last_info = self._agent_step(training=training)
 				episode_reward += reward
 
