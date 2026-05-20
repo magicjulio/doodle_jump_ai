@@ -5,7 +5,7 @@ init()
 # ==================================
 
 #Window Settings
-XWIN, YWIN = 600,800 #                Resolution
+XWIN, YWIN = 600,600 #                Resolution
 HALF_XWIN,HALF_YWIN = XWIN/2,YWIN/2 # Center
 DISPLAY = (XWIN,YWIN)
 FLAGS = 0 #                           Fullscreen, resizeable... 
@@ -31,10 +31,10 @@ GRAVITY = .98
 PLATFORM_COLOR = FOREST_GREEN
 PLATFORM_COLOR_LIGHT = LIGHT_GREEN
 PLATFORM_SIZE = (100,10)
-PLATFORM_DISTANCE_GAP = (50,210)
-MAX_PLATFORM_NUMBER = 10
-BONUS_SPAWN_CHANCE = 10
-BREAKABLE_PLATFORM_CHANCE = 12
+PLATFORM_DISTANCE_GAP = (20,100)
+MAX_PLATFORM_NUMBER = 50
+BONUS_SPAWN_CHANCE = 0 #10
+BREAKABLE_PLATFORM_CHANCE = 0 #12
 
 # Fonts
 LARGE_FONT = SysFont("",128)

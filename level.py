@@ -27,8 +27,9 @@ import settings as config
 
 
 
-#return True with a chance of: P(X=True)=1/x
-chance = lambda x: not randint(0,x)
+def chance(x: int) -> bool:
+	"Return True with a chance of 1/x. A value of 0 disables the chance."
+	return x > 0 and randint(1, x) == 1
 
 
 class Bonus(Sprite):

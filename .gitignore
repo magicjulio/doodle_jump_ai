@@ -1,0 +1,12 @@
+models
+models/*
+.git
+.vscode
+.codex
+.agents
+__pycache__
+.demo.gif
+dqn_checkpoint.pth
+*.pth
+training_progress.csv
+training_progress.png

@@ -114,20 +114,21 @@ class Player(Sprite, Singleton):
 		""" Checks for collisions with level.
 		Should be called in Player.update().
 		"""
+		if self._velocity.y <= .5:
+			return
+
 		lvl = Level.instance
 		if not lvl: return
 		for platform in lvl.platforms:
-			# check falling and colliding <=> isGrounded ?
-			if self._velocity.y > .5:
-				# check collisions with platform's spring bonus
-				if platform.bonus and collide_rect(self,platform.bonus):
-					self.onCollide(platform.bonus)
-					self.jump(platform.bonus.force)
+			# check collisions with platform's spring bonus
+			if platform.bonus and collide_rect(self,platform.bonus):
+				self.onCollide(platform.bonus)
+				self.jump(platform.bonus.force)
 
-				# check collisions with platform
-				if collide_rect(self,platform):
-					self.onCollide(platform)
-					platform.onCollide()
+			# check collisions with platform
+			if collide_rect(self,platform):
+				self.onCollide(platform)
+				platform.onCollide()
 
 
 	def update(self) -> None:
@@ -135,7 +136,7 @@ class Player(Sprite, Singleton):
 		Should be called each frame.
 		"""
 		if Camera.instance:
-			screen_y = Camera.instance.apply_rect(self.rect).y
+			screen_y = self.rect.y - Camera.instance.state.y
 		else:
 			screen_y = self.rect.y
 
