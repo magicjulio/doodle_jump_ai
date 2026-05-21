@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from time import sleep
 
-DEFAULT_AVERAGE_WINDOW = 1
+DEFAULT_AVERAGE_WINDOW = 5000
 
 
 def parse_args():
